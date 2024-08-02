@@ -1,0 +1,183 @@
+import os
+import cv2
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.applications import VGG16
+from tensorflow.keras.applications.vgg16 import preprocess_input
+from sklearn.cluster import KMeans
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from sklearn.metrics import davies_bouldin_score
+import shutil
+import os
+import matplotlib.pyplot as plt
+
+# Unzip UnlabelledSports.zip
+shutil.unpack_archive("/content/product_images.zip")
+
+image_directory = '/content/product_images'
+
+def load_images_from_folder(folder):
+    images = []
+    filenames = []
+    for filename in os.listdir(folder):
+        img = cv2.imread(os.path.join(folder, filename))
+        if img is not None:
+            img = cv2.resize(img, (150, 150))
+            images.append(img)
+            filenames.append(filename)
+    return np.array(images), filenames
+
+def extract_features(images):
+    model = VGG16(weights='imagenet', include_top=False, input_shape=(150, 150, 3))
+    model.trainable = False
+    features = model.predict(preprocess_input(images))
+    return features
+
+# Flatten the extracted features
+def flatten_features(features):
+    return features.reshape(features.shape[0], -1)
+
+def davies_bouldin_method(features, max_clusters=20):
+    davies_bouldin_scores = [] # Initialize an empty list to store Davies-Bouldin scores for different cluster numbers.
+    for n_clusters in range(2, max_clusters + 1): # Loop through Cluster Numbers
+        kmeans = KMeans(n_init=10, n_clusters=n_clusters, random_state=42)
+        labels = kmeans.fit_predict(features)
+        db_score = davies_bouldin_score(features, labels)
+        davies_bouldin_scores.append(db_score)
+    plt.figure(figsize=(10, 5))
+    plt.plot(range(2, max_clusters + 1), davies_bouldin_scores, marker='o')
+    plt.xlabel('Number of clusters')
+    plt.ylabel('Davies-Bouldin Index')
+    plt.title('Davies-Bouldin Method')
+    plt.xticks(range(2, max_clusters + 1))  # Set x-axis to show only integers
+    plt.show()
+
+
+
+images, filenames = load_images_from_folder('/content/product_images')
+
+# Extract features
+features = extract_features(images)
+
+# Flatten features
+flattened_features = flatten_features(features)
+
+pca = PCA(n_components=50)
+reduced_features = pca.fit_transform(flattened_features)
+
+# Use Davies-Bouldin method to find the optimal number of clusters
+davies_bouldin_method(reduced_features)
+
+
+
+print(flattened_features.shape)
+print(reduced_features.shape)
+
+n_clusters = 8
+kmeans = KMeans(n_clusters, n_init=10, random_state=42)
+kmeans.fit(reduced_features)
+labels = kmeans.labels_
+
+for cluster in range(n_clusters):
+    cluster_images = images[labels == cluster]
+    plt.figure(figsize=(20, 20))
+    for i in range(min(len(cluster_images), 25)):
+        plt.subplot(5, 5, i + 1)
+        plt.imshow(cluster_images[i])
+        plt.axis('off')
+    plt.suptitle(f'Cluster {cluster + 1}')
+    plt.show()
+
+import numpy as np
+from collections import Counter
+
+# Assuming 'labels' contains the cluster labels for each image
+cluster_counts = Counter(labels)
+
+# Print the number of images in each cluster
+for cluster, count in cluster_counts.items():
+    print(f"Cluster {cluster}: {count} images")
+
+
+clusters = list(cluster_counts.keys())
+counts = list(cluster_counts.values())
+
+plt.figure(figsize=(10, 6))
+plt.bar(clusters, counts, color='skyblue')
+plt.xlabel('Cluster')
+plt.ylabel('Number of Images')
+plt.title('Number of Images in Each Cluster')
+plt.xticks(clusters)  # Ensure the x-axis only shows integer values for clusters
+plt.show()
+
+
+
+
+cluster_to_label = {
+    0: 1,  # E-waste
+    1: 1,  # E-waste
+    2: 1,  # E-waste
+    3: 1,  # E-waste
+    4: 1,  # E-waste
+    5: 0,  # Non E-waste
+    6: 0,  # Non E-waste
+    7: 1   # E-waste
+}
+
+# Apply the mapping to cluster labels
+mapped_labels = np.array([cluster_to_label[cluster] for cluster in labels])
+
+
+
+labeled_data = pd.DataFrame({'filename': filenames, 'label': mapped_labels})
+labeled_data.to_csv('/content/labeled_e_waste_data.csv', index=False)
+
+print(labeled_data.head())
+
+label_counts = labeled_data['label'].value_counts()
+
+# Create a pie chart
+labels = ['E-waste', 'Non E-waste']
+sizes = [label_counts[1], label_counts[0]]
+colors = ['#ff9999','#66b3ff']
+explode = (0.1, 0)  # explode the E-waste slice
+
+plt.figure(figsize=(8, 8))
+plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140)
+plt.title('Proportion of E-waste vs Non E-waste')
+plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
+plt.show()
+
+# Apply KMeans with the optimal number of clusters (let's assume it to be 2 for e-waste and non-e-waste)
+kmeans = KMeans(n_clusters=2, random_state=42)
+labels = kmeans.fit_predict(flattened_features)
+
+# Create a DataFrame to store filenames and their respective clusters
+clustered_images = pd.DataFrame({'Filename': filenames, 'Cluster': labels})
+
+# Save the DataFrame to a CSV file
+clustered_images.to_csv('/content/clustered_images.csv', index=False)
+
+# Print the first few rows of the DataFrame
+print(clustered_images.head())
+
+
+
+counts = clustered_images['Cluster'].value_counts()
+
+# Create a DataFrame for the counts
+count_df = pd.DataFrame({
+    'Cluster': counts.index,
+    'Count': counts.values
+})
+
+# Print the count table
+print(count_df)
+
+# Plotting the pie chart
+plt.figure(figsize=(8, 8))
+plt.pie(count_df['Count'], labels=count_df['Cluster'], autopct='%1.1f%%', startangle=140)
+plt.title('Distribution of Clusters (0 and 1)')
+plt.show()

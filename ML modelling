@@ -1,0 +1,379 @@
+import pandas as pd
+import numpy as np
+from tensorflow . keras . models import Sequential
+from tensorflow . keras . layers import Dense
+from sklearn . inspection import permutation_importance
+from sklearn . base import BaseEstimator , ClassifierMixin
+from sklearn . model_selection import train_test_split
+from sklearn . linear_model import LogisticRegression
+from sklearn . tree import DecisionTreeClassifier , export_text , plot_tree
+from sklearn . metrics import accuracy_score
+from sklearn . metrics import mean_absolute_error , mean_squared_error
+from sklearn . metrics import confusion_matrix
+from sklearn . metrics import classification_report
+from sklearn . utils import class_weight
+from sklearn import preprocessing
+import seaborn as sns
+import seaborn as sns
+import matplotlib . pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from pandas . api . types import is_numeric_dtype , is_categorical_dtype , is_bool_dtype
+
+data = pd.read_csv("/content/golabl_store (1).csv")
+
+missing_values = data . isna ()
+print ( missing_values .any () .any () )
+
+data = data . dropna ()
+
+data['order_date'] = pd.to_datetime(data['order_date'], dayfirst=True)
+data['shipping_date'] = pd.to_datetime(data['shipping_date'], dayfirst=True)
+
+# Create a new column for the difference in days between order_date and shipping_date
+data['shipping_duration'] = (data['shipping_date'] - data['order_date']).dt.days
+
+data['returned'] = data['returned'].map({'Yes': True, 'No': False})
+
+X = data.drop(columns=['order_id', 'customer_id', 'product_id', 'product_name', 'returned', 'order_date','shipping_date','country','state','city', 'sub_category','region'])
+y = data["returned"]
+
+categorical_columns = ['order_priority', 'shipping_mode', 'segment', 'market', 'category' ]
+
+for column in X.select_dtypes(include=['bool']).columns:
+    X[column] = X[column].astype(int)
+
+X = pd.get_dummies(X, drop_first=True)
+
+numeric_columns = X.select_dtypes(include=['float64', 'int64']).columns
+scaler = StandardScaler().fit(X[numeric_columns])
+X[numeric_columns] = scaler.transform(X[numeric_columns])
+
+target_is_numeric = is_numeric_dtype(y) and not is_bool_dtype(y)
+target_is_categorical = is_categorical_dtype(y)
+target_is_boolean = is_bool_dtype(y)
+
+target = "returned"
+
+# Plot each feature against the target variable using appropriate plots in a grid
+num_features = len(X.columns)
+num_cols = 3
+num_rows = (num_features + num_cols - 1) // num_cols  # Ceiling division
+fig, axes = plt.subplots(num_rows, num_cols, figsize=(15, num_rows * 5))
+
+# Plot each feature against the target variable
+for i, feature in enumerate(X.columns):
+    row = i // num_cols
+    col = i % num_cols
+    ax = axes[row, col]
+    # Determine the type of the feature
+    feature_is_numeric = is_numeric_dtype(X[feature]) and not is_bool_dtype(X[feature])
+    feature_is_boolean = is_bool_dtype(X[feature])
+    feature_is_categorical = is_categorical_dtype(X[feature])
+    # Select appropriate plot
+    if (target_is_categorical or target_is_boolean) and feature_is_numeric:
+        sns.boxplot(x=y, y=X[feature], ax=ax)
+        ax.set_title(f'Box Plot of {feature} by {target}')
+    elif target_is_numeric and feature_is_numeric:
+        sns.scatterplot(x=X[feature], y=y, ax=ax)
+        ax.set_title(f'Scatter Plot of {feature} vs {target}')
+    elif (target_is_categorical or target_is_boolean) and (feature_is_boolean or feature_is_categorical):
+        sns.countplot(x=X[feature], hue=y, ax=ax)
+        ax.set_title(f'Count Plot of {feature} by {target}')
+    elif target_is_numeric and (feature_is_boolean or feature_is_categorical):
+        sns.boxplot(x=X[feature], y=y, ax=ax)
+        ax.set_title(f'Box Plot of {target} by {feature}')
+
+# Remove any empty subplots
+for i in range(num_features, num_rows * num_cols):
+    fig.delaxes(axes.flatten()[i])
+
+# Adjust layout
+plt.tight_layout()
+plt.show()
+
+corr_matrix = pd.concat([X, y], axis=1).corr()
+
+# Plot the heatmap
+plt.figure(figsize=(12, 8))
+sns.heatmap(corr_matrix, annot=True, fmt='.2f', cmap='coolwarm')
+plt.title('Correlation Matrix Heatmap')
+plt.show()
+
+
+
+X = X.drop ( columns =['quantity','discount','shipping_duration','sales'])
+
+
+X_train , X_test , y_train , y_test = train_test_split (X , y , test_size =0.2)
+
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
+import pandas as pd
+
+# Fit the initial Random Forest model with class_weight='balanced'
+rf = RandomForestClassifier(class_weight='balanced')
+rf.fit(X_train, y_train)
+importances = rf.feature_importances_
+
+# Create a DataFrame for feature importances
+feature_importances = pd.DataFrame({'Feature': X_train.columns, 'Importance': importances})
+feature_importances = feature_importances.sort_values(by='Importance', ascending=False)
+
+print("Feature Importances:")
+print(feature_importances)
+
+# Based on importances, decide on final features (e.g., keep top N features)
+top_features = feature_importances['Feature'].head(10).tolist()
+X_train_final = X_train[top_features]
+X_test_final = X_test[top_features]
+
+# Retrain the model with selected features and class_weight='balanced'
+rf_final = RandomForestClassifier(class_weight='balanced')
+rf_final.fit(X_train_final, y_train)
+y_pred_final = rf_final.predict(X_test_final)
+
+print("Final Model Report:")
+print(classification_report(y_test, y_pred_final))
+
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
+import pandas as pd
+
+# Generate polynomial features
+poly = PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)
+X_train_poly = poly.fit_transform(X_train)
+X_test_poly = poly.transform(X_test)
+
+# Set up the parameter grid for GridSearchCV
+param_grid = {
+    'C': [0.1, 1, 10, 100],  # Regularization strength
+    'solver': ['liblinear'],  # Solver compatible with L1 and L2
+    'penalty': ['l1', 'l2'],  # Lasso and Ridge regularization
+    'max_iter': [100, 200, 300]  # Maximum number of iterations
+}
+
+# Initialize and run GridSearchCV
+grid_search = GridSearchCV(LogisticRegression(class_weight='balanced'), param_grid, cv=5, scoring='f1_macro')
+grid_search.fit(X_train_poly, y_train)
+
+# Extract the best model
+best_model = grid_search.best_estimator_
+print("Best parameters:", grid_search.best_params_)
+
+# Evaluate training accuracy
+y_train_pred = best_model.predict(X_train_poly)
+train_accuracy = accuracy_score(y_train, y_train_pred)
+print("Training Accuracy:", train_accuracy)
+
+# Make predictions and evaluate the model on the test set
+y_pred = best_model.predict(X_test_poly)
+accuracy = accuracy_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+f1 = f1_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+
+print("Accuracy:", accuracy)
+print("Recall:", recall)
+print("F1 Score:", f1)
+print("Precision:", precision)
+print(classification_report(y_test, y_pred))
+
+# Display feature coefficients
+coefficients = pd.DataFrame({
+    'Feature': poly.get_feature_names_out(input_features=X.columns),
+    'Coefficient': best_model.coef_[0]
+})
+print(coefficients)
+
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import pandas as pd
+
+# Train the logistic regression model
+model = LogisticRegression(class_weight='balanced')
+model.fit(X_train, y_train)
+
+# Make predictions on the testing data
+y_pred = model.predict(X_test)
+
+# Calculate the accuracy of the model
+accuracy = accuracy_score(y_test, y_pred)
+print("Accuracy:", accuracy)
+recall= recall_score(y_test, y_pred)
+print("recall:", recall)
+f1 = f1_score(y_test, y_pred)
+print("f1", f1)
+precision = precision_score(y_test, y_pred)
+print("precision", precision)
+
+
+
+# Calculate precision, recall, and F1 score
+precision = precision_score(y_test, y_pred, average='macro')  # or 'micro', 'weighted' depending on your need
+recall = recall_score(y_test, y_pred, average='macro')
+f1 = f1_score(y_test, y_pred, average='macro')
+accuracy = accuracy_score(y_test, y_pred)
+
+print(f"Precision: {precision}")
+print(f"Recall: {recall}")
+print(f"F1 Score: {f1}")
+print(f"accuracy Score: {accuracy}")
+
+# Display feature coefficients
+coefficients = pd.DataFrame({
+    'Feature': X.columns,
+    'Coefficient': model.coef_[0]
+})
+print(coefficients)
+
+
+
+X_train = X_train.astype ('float32')
+y_train = y_train.astype ('float32')
+X_test = X_test.astype ('float32')
+y_test = y_test.astype ('float32')
+
+import numpy as np
+import pandas as pd
+from sklearn.utils import class_weight
+from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.inspection import permutation_importance
+from sklearn.base import BaseEstimator, ClassifierMixin
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+# Compute class weights
+class_weights = class_weight.compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+class_weights_dict = dict(enumerate(class_weights))
+
+# Define the model
+model = Sequential()
+model.add(Dense(12, input_shape=(len(X_train.columns),), activation='relu'))
+model.add(Dense(6, activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+
+# Compile the model
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# Train the model
+model.fit(X_train, y_train, epochs=5, batch_size=200, class_weight=class_weights_dict)
+
+# Evaluate the model
+_, accuracy = model.evaluate(X_test, y_test)
+print('Accuracy: %.2f' % (accuracy * 100))
+
+# Make class predictions with the model
+predictions = (model.predict(X_test) > 0.5).astype(int)
+
+# Print confusion matrix and classification report
+print(confusion_matrix(y_test, predictions))
+print(classification_report(y_test, predictions))
+
+# Evaluate feature importance using Permutation Importance
+# Wrapper for Keras model
+class KerasClassifierWrapper(BaseEstimator, ClassifierMixin):
+    def __init__(self, model):
+        self.model = model
+
+    def fit(self, X, y):
+        self.model.fit(X, y, epochs=1, batch_size=50, verbose=0)
+        return self
+
+    def predict(self, X):
+        return (self.model.predict(X) > 0.5).astype(int)
+
+    def score(self, X, y):
+        _, accuracy = self.model.evaluate(X, y, verbose=0)
+        return accuracy
+
+# Create an instance of the wrapper
+wrapped_model = KerasClassifierWrapper(model)
+
+# Calculate permutation importance
+results = permutation_importance(wrapped_model, X_test, y_test, scoring='accuracy', n_repeats=3, random_state=42)
+
+# Summarize feature importance
+for i in range(X_test.shape[1]):
+    print(f'Feature: {X_test.columns[i]}, Importance: {results.importances_mean[i]:.4f}')
+
+
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report
+
+rf = RandomForestClassifier()
+rf.fit(X_train, y_train)
+importances = rf.feature_importances_
+
+# Create a DataFrame for feature importances
+feature_importances = pd.DataFrame({'Feature': X.columns, 'Importance': importances})
+feature_importances = feature_importances.sort_values(by='Importance', ascending=False)
+
+print("Feature Importances:")
+print(feature_importances)
+
+# Based on importances, decide on final features (e.g., keep top N features)
+top_features = feature_importances['Feature'].head(10).tolist()
+X_train_final = X_train[top_features]
+X_test_final = X_test[top_features]
+
+# Retrain the model with selected features
+rf_final = RandomForestClassifier()
+rf_final.fit(X_train_final, y_train)
+y_pred_final = rf_final.predict(X_test_final)
+
+print("Final Model Report:")
+print(classification_report(y_test, y_pred_final))
+
+from sklearn.tree import DecisionTreeClassifier, plot_tree, export_text
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Train the decision tree model
+model = DecisionTreeClassifier(max_depth=4, class_weight='balanced')
+model.fit(X_train, y_train)
+
+# Make predictions on the testing data
+y_pred = model.predict(X_test)
+
+# Calculate the accuracy of the model
+accuracy = accuracy_score(y_test, y_pred)
+print("Accuracy:", accuracy)
+
+# Calculate precision, recall, and F1 score
+precision = precision_score(y_test, y_pred, average='macro')  # or 'micro', 'weighted' depending on your need
+recall = recall_score(y_test, y_pred, average='macro')
+f1 = f1_score(y_test, y_pred, average='macro')
+
+print(f"Precision: {precision}")
+print(f"Recall: {recall}")
+print(f"F1 Score: {f1}")
+
+# Plot the decision tree
+feature_list = X_train.columns
+plt.figure(figsize=(30, 20))
+plot_tree(model, filled=True, feature_names=feature_list, rounded=True, fontsize=8)
+plt.show()
+
+# Display the decision tree structure in text form (easier to read)
+tree_rules = export_text(model, feature_names=list(feature_list))
+print("\nTree Structure:")
+print(tree_rules)
+
+# Display the Feature Importance Scores
+feature_list = X_train.columns
+print("\nFeature Importance Scores:")
+for name, importance in zip(feature_list, model.feature_importances_):
+    print(f"{name}: {importance:.4f}")
+
+
